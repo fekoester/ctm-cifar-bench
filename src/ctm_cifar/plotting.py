@@ -1,0 +1,222 @@
+from __future__ import annotations
+
+import os
+from typing import Any, Dict, List, Tuple
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+from .logging_utils import safe_makedirs
+
+
+BASE_COLOR = {
+    ("monotone", 1): "C0",
+    ("minmax",   1): "C1",
+    ("monotone", 0): "C2",
+    ("minmax",   0): "C3",
+    ("allticks", 1): "C4",
+    ("allticks", 0): "C5",
+    ("stochastic", 1): "C6",
+    ("stochastic", 0): "C7",
+}
+LSTYLES = ["-", "--", ":", "-."]
+
+
+def _norm_loss_type(s: str) -> str:
+    s = str(s).strip().lower()
+    if s.startswith("mono"):
+        return "monotone"
+    if s.startswith("min"):
+        return "minmax"
+    return s
+
+
+def run_style_key(cfg: Dict[str, Any]) -> Tuple:
+    dataset = str(cfg.get("dataset", "cifar?")).lower()
+    loss_type = _norm_loss_type(cfg.get("loss_type", "??"))
+    zres = int(bool(cfg.get("z_residual", False)))
+    lam = cfg.get("lambda_mono", None)
+    lam_f = float(lam) if lam is not None else -1.0
+    return (dataset, loss_type, zres, lam_f)
+
+
+def _lambda_groups_for_monotone(runs: List[Dict[str, Any]]) -> Dict[Tuple, int]:
+    lambdas_by_group = {}
+    for r in runs:
+        cfg = r["cfg"]
+        dataset = str(cfg.get("dataset", "cifar?")).lower()
+        loss_type = _norm_loss_type(cfg.get("loss_type", "??"))
+        zres = int(bool(cfg.get("z_residual", False)))
+        if loss_type in ("monotone", "allticks"):
+            key = (dataset, loss_type, zres)
+            lam = cfg.get("lambda_mono", None)
+            lam_f = float(lam) if lam is not None else -1.0
+            lambdas_by_group.setdefault(key, set()).add(lam_f)
+
+    idx_map = {}
+    for key, lam_set in lambdas_by_group.items():
+        for i, lam in enumerate(sorted(list(lam_set))):
+            idx_map[(key, lam)] = i
+    return idx_map
+
+
+def _style_for_run(cfg: Dict[str, Any], lam_idx_map: Dict[Tuple, int]) -> Dict[str, Any]:
+    dataset = str(cfg.get("dataset", "cifar?")).lower()
+    loss_type = _norm_loss_type(cfg.get("loss_type", "??"))
+    zres = int(bool(cfg.get("z_residual", False)))
+    lam = cfg.get("lambda_mono", None)
+    lam_f = float(lam) if lam is not None else -1.0
+
+    color = BASE_COLOR.get((loss_type, zres), "C7")
+    ls = "-"
+
+    if loss_type in ("monotone", "allticks"):
+        lam_index = lam_idx_map.get(((dataset, loss_type, zres), lam_f), 0)
+        ls = LSTYLES[lam_index % len(LSTYLES)]
+
+    return {"color": color, "linestyle": ls, "linewidth": 2.2}
+
+
+def extract_history_arrays(history: List[Dict[str, Any]]):
+    epochs = np.array([h.get("epoch", i + 1) for i, h in enumerate(history)], dtype=np.int64)
+    val_acc = np.array([h.get("val_acc_2T", np.nan) for h in history], dtype=np.float32)
+    val_ce = np.array([h.get("val_ce_2T", np.nan) for h in history], dtype=np.float32)
+    train_loss = np.array([h.get("train_loss", np.nan) for h in history], dtype=np.float32)
+    return epochs, train_loss, val_acc, val_ce
+
+
+def extract_best_tick_acc_over_epochs(history: List[Dict[str, Any]], mode: str = "max_acc"):
+    epochs = np.array([h.get("epoch", i + 1) for i, h in enumerate(history)], dtype=np.int64)
+    best = []
+    for h in history:
+        acc = np.asarray(h.get("val_acc_ticks_2T", []), dtype=np.float32)
+        cert = np.asarray(h.get("val_cert_ticks_2T", []), dtype=np.float32)
+        if acc.size == 0:
+            best.append(np.nan)
+            continue
+        if mode == "max_acc":
+            best.append(float(acc.max()))
+        elif mode == "cert_tick_acc":
+            if cert.size == 0:
+                best.append(float(acc.max()))
+            else:
+                best.append(float(acc[int(cert.argmax())]))
+        else:
+            raise ValueError(mode)
+    return epochs, np.asarray(best, dtype=np.float32)
+
+
+def plot_summary(runs: List[Dict[str, Any]], out_dir: str, keep_topk_cv: int = 6):
+    safe_makedirs(out_dir)
+    lam_idx_map = _lambda_groups_for_monotone(runs)
+
+    # val acc vs epoch
+    plt.figure(figsize=(10, 6))
+    for r in sorted(runs, key=lambda x: run_style_key(x["cfg"])):
+        epochs, _, val_acc, _ = extract_history_arrays(r["history"])
+        st = _style_for_run(r["cfg"], lam_idx_map)
+        plt.plot(epochs, val_acc * 100.0, label=r["label"], **st)
+    plt.xlabel("epoch")
+    plt.ylabel("validation accuracy @2T final tick (%)")
+    plt.title("Validation accuracy vs epoch (overlay)")
+    plt.grid(True, alpha=0.3)
+    plt.legend(fontsize=8)
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "val_acc_vs_epoch.png"), dpi=220)
+    plt.close()
+
+    # val ce vs epoch
+    plt.figure(figsize=(10, 6))
+    for r in sorted(runs, key=lambda x: run_style_key(x["cfg"])):
+        epochs, _, _, val_ce = extract_history_arrays(r["history"])
+        st = _style_for_run(r["cfg"], lam_idx_map)
+        plt.plot(epochs, val_ce, label=r["label"], **st)
+    plt.xlabel("epoch")
+    plt.ylabel("validation cross-entropy @2T final tick")
+    plt.title("Validation cross-entropy vs epoch (overlay)")
+    plt.grid(True, alpha=0.3)
+    plt.legend(fontsize=8)
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "val_ce_vs_epoch.png"), dpi=220)
+    plt.close()
+
+    # best tick curves
+    for mode, fname, ttl in [
+        ("max_acc", "val_acc_besttick_vs_epoch.png", "Best tick acc per epoch [argmax acc over ticks]"),
+        ("cert_tick_acc", "val_acc_certtick_vs_epoch.png", "Best tick acc per epoch [tick = argmax certainty]"),
+    ]:
+        plt.figure(figsize=(10, 6))
+        for r in sorted(runs, key=lambda x: run_style_key(x["cfg"])):
+            epochs, best = extract_best_tick_acc_over_epochs(r["history"], mode=mode)
+            st = _style_for_run(r["cfg"], lam_idx_map)
+            plt.plot(epochs, best * 100.0, label=r["label"], **st)
+        plt.xlabel("epoch")
+        plt.ylabel("validation accuracy (%)")
+        plt.title(ttl)
+        plt.grid(True, alpha=0.3)
+        plt.legend(fontsize=8)
+        plt.tight_layout()
+        plt.savefig(os.path.join(out_dir, fname), dpi=220)
+        plt.close()
+
+    # end-of-run per tick (from eval_per_tick.json)
+    def _plot_per_tick(key: str, ylabel: str, fname: str, title: str, scale100: bool = False):
+        plt.figure(figsize=(10, 6))
+        for r in sorted(runs, key=lambda x: run_style_key(x["cfg"])):
+            arr = np.asarray(r["per_tick"].get(key, []), dtype=np.float32)
+            if arr.size == 0:
+                continue
+            ticks = np.arange(1, arr.size + 1)
+            st = _style_for_run(r["cfg"], lam_idx_map)
+            y = arr * 100.0 if scale100 else arr
+            plt.plot(ticks, y, label=r["label"], **st)
+        plt.xlabel("tick")
+        plt.ylabel(ylabel)
+        plt.title(title)
+        plt.grid(True, alpha=0.3)
+        plt.legend(fontsize=8)
+        plt.tight_layout()
+        plt.savefig(os.path.join(out_dir, fname), dpi=220)
+        plt.close()
+
+    _plot_per_tick("acc", "accuracy (%)", "eval_per_tick_acc.png", "End-of-run per-tick accuracy", scale100=True)
+    _plot_per_tick("ce", "cross-entropy", "eval_per_tick_ce.png", "End-of-run per-tick cross-entropy")
+    _plot_per_tick("cert", "certainty (1 - H/logC)", "eval_per_tick_cert.png", "End-of-run per-tick certainty")
+
+    # CV figure: keep top-k by final val_acc_2T
+    runs_sorted = sorted(
+        runs,
+        key=lambda r: float(r["history"][-1].get("val_acc_2T", -1.0)) if r["history"] else -1.0,
+        reverse=True,
+    )
+    keep = runs_sorted[: max(1, int(keep_topk_cv))]
+    keep_sorted = sorted(keep, key=lambda x: run_style_key(x["cfg"]))
+
+    plt.figure(figsize=(10, 5.8))
+    for r in keep_sorted:
+        acc = np.asarray(r["per_tick"].get("acc", []), dtype=np.float32)
+        if acc.size == 0:
+            continue
+        ticks = np.arange(1, acc.size + 1)
+        cfg = r["cfg"]
+        loss_type = _norm_loss_type(cfg.get("loss_type", "??"))
+        zres = int(bool(cfg.get("z_residual", False)))
+        lam = cfg.get("lambda_mono", None)
+
+        if loss_type in ("monotone", "allticks"):
+            lbl = f"{loss_type} (zres={zres}, λ={lam})"
+        else:
+            lbl = f"{loss_type} (zres={zres})"
+
+        st = _style_for_run(cfg, lam_idx_map)
+        plt.plot(ticks, acc * 100.0, label=lbl, **st)
+
+    plt.xlabel("tick")
+    plt.ylabel("validation accuracy (%)")
+    plt.title("CTM CIFAR — per-tick validation accuracy (CV figure)")
+    plt.grid(True, alpha=0.3)
+    plt.legend(fontsize=9, loc="lower right")
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "cv_figure.png"), dpi=260)
+    plt.close()
+

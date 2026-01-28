@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ctm-cifar"
+version = "0.1.0"
+description = "CTM-style multi-tick refinement on CIFAR (clean, modular, reproducible)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "YOUR_NAME"}]
+dependencies = [
+  "numpy>=1.24",
+  "torch>=2.1",
+  "torchvision>=0.16",
+  "tqdm>=4.66",
+  "matplotlib>=3.8",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+

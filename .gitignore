@@ -1,0 +1,84 @@
+# ----------------------------
+# Python / packaging
+# ----------------------------
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.dylib
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# ----------------------------
+# Virtual envs
+# ----------------------------
+.venv/
+venv/
+ENV/
+env/
+
+# ----------------------------
+# OS / editor
+# ----------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# ----------------------------
+# Jupyter
+# ----------------------------
+.ipynb_checkpoints/
+
+# ----------------------------
+# Data / downloads
+# ----------------------------
+data_cifar/
+data/
+datasets/
+**/.torch/
+**/.torchvision/
+
+# CIFAR files (in case they land elsewhere)
+**/cifar-10-batches-py/
+**/cifar-100-python/
+**/*.tar.gz
+
+# ----------------------------
+# Experiment outputs
+# ----------------------------
+runs*/
+runs_*/
+**/runs*/
+**/runs_*/
+
+# Common artifacts created by scripts
+*.pt
+*.pth
+*.ckpt
+*.npz
+*.npy
+
+# If you ever dump big images/videos/logs
+*.mp4
+*.gif
+*.avi
+
+# ----------------------------
+# Logs
+# ----------------------------
+*.log
+
+# ----------------------------
+# Keep placeholder directories if you add them later
+# (uncomment if you use empty dirs)
+# !**/.gitkeep
