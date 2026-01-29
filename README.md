@@ -1,6 +1,6 @@
 # CTM-CIFAR (Multi-tick refinement for CIFAR-10/100)
 
-A clean, modular, research-friendly implementation of a CTM-style multi-tick refinement classifier for CIFAR-10 / CIFAR-100 with:
+Implementation of a CTM-style multi-tick refinement classifier for CIFAR-10 / CIFAR-100 with:
 
 - Multi-tick logits (T_train ticks for training, T_eval_mult * T_train ticks for eval)
 - Multiple objective options:
@@ -11,8 +11,7 @@ A clean, modular, research-friendly implementation of a CTM-style multi-tick ref
 - Deterministic, stable run folders with per-run JSON logs + global runs.csv
 - Per-tick tracking and summary plotting scripts
 
-This repo is meant to be easy to extend: ablations are flags, model components are isolated in modules, and runs are fully reproducible.
-
+This repo is meant to be an implementation of Sakana AI's continuous thought machines with the addition of a residual connection and optional normalization in the neuron synchronization step, while also adding different loss functions.
 
 ## Project structure
 
@@ -174,11 +173,7 @@ Add the plot:
 - summary_plots/cv_figure.png
 
 
-## License
-
-Choose a license (MIT/Apache-2.0 recommended) and drop the text into LICENSE.
-
-
 ## Citation / attribution
 
-If you publish results using this code, cite the original CTM work and this repo (once you add a DOI or arXiv).
+If you publish results using this code, cite the original CTM work.
+Original paper: [arXiv:2505.05522](https://arxiv.org/abs/2505.05522)
