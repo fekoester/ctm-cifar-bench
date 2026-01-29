@@ -10,14 +10,10 @@ from .logging_utils import safe_makedirs
 
 
 BASE_COLOR = {
-    ("monotone", 1): "C0",
-    ("minmax",   1): "C1",
-    ("monotone", 0): "C2",
-    ("minmax",   0): "C3",
-    ("allticks", 1): "C4",
-    ("allticks", 0): "C5",
-    ("stochastic", 1): "C6",
-    ("stochastic", 0): "C7",
+    "monotone":   "C0",
+    "minmax":     "C1",
+    "allticks":   "C2",
+    "stochastic": "C3",
 }
 LSTYLES = ["-", "--", ":", "-."]
 
@@ -38,6 +34,7 @@ def run_style_key(cfg: Dict[str, Any]) -> Tuple:
     lam = cfg.get("lambda_mono", None)
     lam_f = float(lam) if lam is not None else -1.0
     return (dataset, loss_type, zres, lam_f)
+
 
 
 def _lambda_groups_for_monotone(runs: List[Dict[str, Any]]) -> Dict[Tuple, int]:
@@ -67,14 +64,20 @@ def _style_for_run(cfg: Dict[str, Any], lam_idx_map: Dict[Tuple, int]) -> Dict[s
     lam = cfg.get("lambda_mono", None)
     lam_f = float(lam) if lam is not None else -1.0
 
-    color = BASE_COLOR.get((loss_type, zres), "C7")
-    ls = "-"
+    color = BASE_COLOR.get(loss_type, "C7")
 
+    # Requested: ONLY encode zres with linestyle
+    ls = "-" if zres == 0 else "--"
+
+    # Optional: if you sweep lambda, you can still vary linewidth a tiny bit
+    # without breaking the "only two linestyles" rule:
+    lw = 2.2
     if loss_type in ("monotone", "allticks"):
         lam_index = lam_idx_map.get(((dataset, loss_type, zres), lam_f), 0)
-        ls = LSTYLES[lam_index % len(LSTYLES)]
+        lw = 2.0 + 0.3 * (lam_index % 3)
 
-    return {"color": color, "linestyle": ls, "linewidth": 2.2}
+    return {"color": color, "linestyle": ls, "linewidth": lw}
+
 
 
 def extract_history_arrays(history: List[Dict[str, Any]]):
@@ -111,7 +114,7 @@ def plot_summary(runs: List[Dict[str, Any]], out_dir: str, keep_topk_cv: int = 6
     lam_idx_map = _lambda_groups_for_monotone(runs)
 
     # val acc vs epoch
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(6, 4))
     for r in sorted(runs, key=lambda x: run_style_key(x["cfg"])):
         epochs, _, val_acc, _ = extract_history_arrays(r["history"])
         st = _style_for_run(r["cfg"], lam_idx_map)
@@ -126,7 +129,7 @@ def plot_summary(runs: List[Dict[str, Any]], out_dir: str, keep_topk_cv: int = 6
     plt.close()
 
     # val ce vs epoch
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(6, 4))
     for r in sorted(runs, key=lambda x: run_style_key(x["cfg"])):
         epochs, _, _, val_ce = extract_history_arrays(r["history"])
         st = _style_for_run(r["cfg"], lam_idx_map)
@@ -145,7 +148,7 @@ def plot_summary(runs: List[Dict[str, Any]], out_dir: str, keep_topk_cv: int = 6
         ("max_acc", "val_acc_besttick_vs_epoch.png", "Best tick acc per epoch [argmax acc over ticks]"),
         ("cert_tick_acc", "val_acc_certtick_vs_epoch.png", "Best tick acc per epoch [tick = argmax certainty]"),
     ]:
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(6, 4))
         for r in sorted(runs, key=lambda x: run_style_key(x["cfg"])):
             epochs, best = extract_best_tick_acc_over_epochs(r["history"], mode=mode)
             st = _style_for_run(r["cfg"], lam_idx_map)
@@ -161,7 +164,7 @@ def plot_summary(runs: List[Dict[str, Any]], out_dir: str, keep_topk_cv: int = 6
 
     # end-of-run per tick (from eval_per_tick.json)
     def _plot_per_tick(key: str, ylabel: str, fname: str, title: str, scale100: bool = False):
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(6, 4))
         for r in sorted(runs, key=lambda x: run_style_key(x["cfg"])):
             arr = np.asarray(r["per_tick"].get(key, []), dtype=np.float32)
             if arr.size == 0:

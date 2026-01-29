@@ -82,3 +82,7 @@ runs_*/
 # Keep placeholder directories if you add them later
 # (uncomment if you use empty dirs)
 # !**/.gitkeep
+
+# Track curated assets, ignore all run outputs
+!assets/
+!assets/**

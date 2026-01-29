@@ -6,7 +6,7 @@ import json
 import argparse
 from typing import Any, Dict, List
 
-from ctm_cifar.plotting import plot_summary
+from ctm_cifar.plotting import plot_summary, _norm_loss_type
 
 
 def load_json(path: str) -> Any:
@@ -28,16 +28,18 @@ def list_run_dirs(out_root: str) -> List[str]:
 
 
 def make_label(cfg: Dict[str, Any]) -> str:
-    dataset = cfg.get("dataset", "cifar?")
-    loss_type = cfg.get("loss_type", "?")
+    loss_type = _norm_loss_type(cfg.get("loss_type", "??"))
     zres = int(bool(cfg.get("z_residual", False)))
     lam = cfg.get("lambda_mono", None)
-    T = cfg.get("T_train", None)
-    if str(loss_type).lower().startswith("min"):
-        return f"{dataset} | minmax | zres={zres} | T={T}"
-    if str(loss_type).lower().startswith("stoch"):
-        return f"{dataset} | stochastic | zres={zres} | T={T}"
-    return f"{dataset} | {loss_type} | zres={zres} | λ={lam} | T={T}"
+    dataset = cfg.get("dataset", "cifar?")
+    T_ticks = cfg.get("T_ticks", None)
+
+    if loss_type == "monotone":
+        return f"{dataset} | mono | zres={zres} | λ={lam} | T={T_ticks}"
+    else:
+        return f"{dataset} | {loss_type} | zres={zres} | T={T_ticks}"
+
+
 
 
 def read_run(run_dir: str) -> Dict[str, Any]:
