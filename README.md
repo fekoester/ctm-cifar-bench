@@ -167,19 +167,6 @@ Key takeaways from this run:
 
 ![End-of-run per-tick accuracy (CIFAR-10)](assets/eval_per_tick_acc.png)
 
-Template:
-
-- Dataset: CIFAR-10
-- Model: D=256, M=32, H=256, T_train=10, T_eval=20
-- Objective: minmax, z_residual=1, eval_rule=certainty
-- Final acc @ 2T last tick: XX.XX%
-- Best-tick acc (max over ticks): XX.XX%
-- Best-tick acc (certainty tick): XX.XX%
-
-Add the plot:
-
-- summary_plots/cv_figure.png
-
 
 ## Citation / attribution
 
