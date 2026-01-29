@@ -155,9 +155,17 @@ Monotone loss:
 - Seeds set both torch and numpy (and DataLoader generator).
 
 
-## Results (fill in after one run)
+## Results
 
-After you run your headline configuration, paste results here.
+End-of-run **per-tick validation accuracy** on CIFAR-10 for three training objectives (**minmax**, **monotone**, **stochastic**), each with and without the *z-residual* connection (`zres=0` solid, `zres=1` dashed).
+Training was done just for T=25 ticks, but evaluation was conducted up to 50 ticks.
+
+Key takeaways from this run:
+- **Stochastic** training reaches the best and most stable performance across ticks (≈ low-80% and flat).
+- **Monotone** improves up to a mid-tick peak but degrades at later ticks (collapse for `zres=0`, slower decay for `zres=1`).
+- **Minmax** peaks around mid ticks but is noticeably less stable, and the residual variant underperforms here.
+
+![End-of-run per-tick accuracy (CIFAR-10)](assets/eval_per_tick_acc.png)
 
 Template:
 
