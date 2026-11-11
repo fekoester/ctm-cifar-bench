@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import os
-import json
 import csv
+import json
+import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 def safe_makedirs(path: str):
@@ -21,14 +21,14 @@ def write_json(path: str, obj: Any):
         json.dump(obj, f, indent=2, sort_keys=True)
 
 
-def append_jsonl(path: str, row: Dict[str, Any]):
+def append_jsonl(path: str, row: dict[str, Any]):
     safe_makedirs(os.path.dirname(path))
     with open(path, "a") as f:
         f.write(json.dumps(row) + "\n")
 
 
 class CSVLogger:
-    def __init__(self, path: str, fieldnames: List[str]):
+    def __init__(self, path: str, fieldnames: list[str]):
         self.path = path
         self.fieldnames = fieldnames
         safe_makedirs(os.path.dirname(path))
@@ -39,7 +39,7 @@ class CSVLogger:
             self.w.writeheader()
             self.f.flush()
 
-    def log(self, row: Dict[str, Any]):
+    def log(self, row: dict[str, Any]):
         clean = {k: row.get(k, "") for k in self.fieldnames}
         self.w.writerow(clean)
         self.f.flush()

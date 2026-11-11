@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import os
-import json
 import argparse
-from typing import Any, Dict, List
+import json
+import os
+from typing import Any
 
-from ctm_cifar.plotting import plot_summary, _norm_loss_type
+from ctm_cifar.plotting import _norm_loss_type, plot_summary
 
 
 def load_json(path: str) -> Any:
-    with open(path, "r") as f:
+    with open(path) as f:
         return json.load(f)
 
 
-def list_run_dirs(out_root: str) -> List[str]:
+def list_run_dirs(out_root: str) -> list[str]:
     out = []
     if not os.path.isdir(out_root):
         return out
@@ -27,7 +27,7 @@ def list_run_dirs(out_root: str) -> List[str]:
     return out
 
 
-def make_label(cfg: Dict[str, Any]) -> str:
+def make_label(cfg: dict[str, Any]) -> str:
     loss_type = _norm_loss_type(cfg.get("loss_type", "??"))
     zres = int(bool(cfg.get("z_residual", False)))
     lam = cfg.get("lambda_mono", None)
@@ -42,7 +42,7 @@ def make_label(cfg: Dict[str, Any]) -> str:
 
 
 
-def read_run(run_dir: str) -> Dict[str, Any]:
+def read_run(run_dir: str) -> dict[str, Any]:
     cfg = load_json(os.path.join(run_dir, "config.json"))
     hist = load_json(os.path.join(run_dir, "history.json"))
     per_tick = load_json(os.path.join(run_dir, "eval_per_tick.json"))

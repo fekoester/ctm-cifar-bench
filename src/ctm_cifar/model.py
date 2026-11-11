@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
-def make_pairs(num_neurons: int, num_pairs: int, num_self: int, seed: int) -> Tuple[torch.Tensor, torch.Tensor]:
+def make_pairs(num_neurons: int, num_pairs: int, num_self: int, seed: int) -> tuple[torch.Tensor, torch.Tensor]:
     g = torch.Generator()
     g.manual_seed(int(seed))
 
@@ -230,6 +229,9 @@ class CTMOptions:
     state_feat: bool
     hyper_rank: int
     hyper_hidden: int
+    # Output synchronisation read after the tick's z update (CTM paper). False: legacy order, where the
+    # logits of tick t only see z from before tick t, so tick-0 logits are the same for every image.
+    sync_after_update: bool = True
 
 
 class CTMCIFARClassifier(nn.Module):
@@ -286,6 +288,19 @@ class CTMCIFARClassifier(nn.Module):
 
         self.eta = nn.Parameter(torch.tensor(float(opt.eta)))
 
+    def _sync_out(self, z, alpha_out, beta_out, decay_out):
+        """Decayed running synchronisation of the output neuron pairs."""
+        zi_out = z[:, self.i_out]
+        zj_out = z[:, self.j_out]
+        alpha_out = alpha_out * decay_out.unsqueeze(0) + (zi_out * zj_out)
+        if self.opt.beta_per_sample:
+            beta_out = beta_out * decay_out.unsqueeze(0) + 1.0
+            S_out = alpha_out / torch.sqrt(beta_out.clamp_min(1e-8))
+        else:
+            beta_out = beta_out * decay_out + 1.0
+            S_out = alpha_out / torch.sqrt(beta_out.clamp_min(1e-8)).unsqueeze(0)
+        return alpha_out, beta_out, S_out
+
     def _maybe_ln_z(self, z: torch.Tensor) -> torch.Tensor:
         if self.opt.layernorm_z:
             return F.layer_norm(z, (z.shape[-1],))
@@ -296,7 +311,7 @@ class CTMCIFARClassifier(nn.Module):
             return self.o_ln(o)
         return o
 
-    def forward(self, x_img: torch.Tensor, max_ticks: Optional[int] = None, additive_logits: bool = False):
+    def forward(self, x_img: torch.Tensor, max_ticks: int | None = None, additive_logits: bool = False):
         B = x_img.size(0)
         device = x_img.device
 
@@ -345,27 +360,22 @@ class CTMCIFARClassifier(nn.Module):
             else:
                 K, V = K0, V0
 
-            zi_out = z[:, self.i_out]
-            zj_out = z[:, self.j_out]
+            # Action synchronisation (drives the attention query) from the current state.
             zi_act = z[:, self.i_act]
             zj_act = z[:, self.j_act]
-
             if self.opt.beta_per_sample:
-                alpha_out = alpha_out * decay_out.unsqueeze(0) + (zi_out * zj_out)
-                beta_out = beta_out * decay_out.unsqueeze(0) + 1.0
                 alpha_act = alpha_act * decay_act.unsqueeze(0) + (zi_act * zj_act)
                 beta_act = beta_act * decay_act.unsqueeze(0) + 1.0
-                S_out = alpha_out / torch.sqrt(beta_out.clamp_min(1e-8))
                 S_act = alpha_act / torch.sqrt(beta_act.clamp_min(1e-8))
             else:
-                alpha_out = alpha_out * decay_out.unsqueeze(0) + (zi_out * zj_out)
-                beta_out = beta_out * decay_out + 1.0
                 alpha_act = alpha_act * decay_act.unsqueeze(0) + (zi_act * zj_act)
                 beta_act = beta_act * decay_act + 1.0
-                S_out = alpha_out / torch.sqrt(beta_out.clamp_min(1e-8)).unsqueeze(0)
                 S_act = alpha_act / torch.sqrt(beta_act.clamp_min(1e-8)).unsqueeze(0)
 
-            delta_logits = self.W_out(S_out)
+            if not self.opt.sync_after_update:
+                alpha_out, beta_out, S_out = self._sync_out(z, alpha_out, beta_out, decay_out)
+                delta_logits = self.W_out(S_out)
+
             q = self.W_in(S_act)                    # [B,attn_dim]
             Q = self.q_proj(q).unsqueeze(1)         # [B,1,attn_dim]
 
@@ -386,6 +396,11 @@ class CTMCIFARClassifier(nn.Module):
 
             z = self._maybe_ln_z(z)
 
+            if self.opt.sync_after_update:
+                # Output synchronisation from the updated state: tick t's logits use tick t's read.
+                alpha_out, beta_out, S_out = self._sync_out(z, alpha_out, beta_out, decay_out)
+                delta_logits = self.W_out(S_out)
+
             if additive_logits:
                 logits_cum = logits_cum + delta_logits
                 logits_all.append(logits_cum)
@@ -394,3 +409,21 @@ class CTMCIFARClassifier(nn.Module):
 
         return torch.stack(logits_all, dim=1)  # [B,T,C]
 
+
+
+class CNNBaseline(nn.Module):
+    """
+    Reference model: the same convolutional backbone, global average pooling and a linear head.
+    Returns logits shaped [B, 1, C] so it plugs into the multi-tick training/evaluation code.
+    It answers what the CTM's recurrent ticks add on top of the backbone.
+    """
+
+    def __init__(self, num_classes: int, feat_dim: int = 64, dropout: float = 0.0):
+        super().__init__()
+        self.backbone = CIFARConvBackbone(feat_dim=feat_dim, dropout=dropout)
+        self.head = nn.Linear(feat_dim, int(num_classes))
+        self.T_ticks = 1
+
+    def forward(self, x_img: torch.Tensor, max_ticks: int | None = None, additive_logits: bool = False):
+        h = self.backbone(x_img).mean(dim=(2, 3))
+        return self.head(h).unsqueeze(1)

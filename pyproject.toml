@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ctm-cifar"
-version = "0.1.0"
+version = "0.2.0"
 description = "CTM-style multi-tick refinement on CIFAR (clean, modular, reproducible)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
-authors = [{name = "YOUR_NAME"}]
+authors = [{name = "Felix Köster"}]
 dependencies = [
   "numpy>=1.24",
   "torch>=2.1",
@@ -24,8 +24,16 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.5"]
+
 [tool.ruff]
-line-length = 100
-select = ["E", "F", "I", "UP", "B"]
-ignore = ["E501"]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
+ignore = ["B905"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
