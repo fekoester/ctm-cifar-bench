@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, Optional
-import json
 import hashlib
+import json
+from dataclasses import asdict, dataclass
+from typing import Any
 
 
 @dataclass
@@ -17,6 +17,8 @@ class TrainConfig:
     dataset: str = "cifar10"             # "cifar10" | "cifar100"
     data_dir: str = "./data_cifar"
     num_workers: int = 4
+    val_size: int = 5000                 # held out from the training set; 0 => validate on test (legacy)
+    eval_test: bool = True               # evaluate the best checkpoint on the test set once, at the end
 
     # Training
     epochs: int = 50
@@ -27,7 +29,8 @@ class TrainConfig:
     warmup_steps: int = 200
     steps_per_epoch: int = 0             # 0 => full loader
 
-    # Model size
+    # Model
+    model_type: str = "ctm"              # "ctm" | "cnn" (same backbone + linear head baseline)
     D: int = 256
     M: int = 32
     H: int = 256
@@ -49,6 +52,9 @@ class TrainConfig:
     dropout: float = 0.0
 
     # CTM dynamics knobs
+    sync_after_update: bool = True      # read output synchronisation after the tick's state update (as in
+                                        # the CTM paper). False reproduces <=0.1 runs, where tick-0 logits
+                                        # were identical for every image.
     z_residual: bool = True
     eta: float = 0.1
     layernorm_z: bool = True            # apply LN to z every tick
@@ -72,7 +78,15 @@ class TrainConfig:
     # Stochastic stopping (if loss_type=="stochastic")
     stoch_truncate_compute: bool = False
 
+    # Speed
+    compile: bool = False               # torch.compile the model (CUDA recommended)
+    channels_last: bool = False
+
+    # Adaptive compute analysis (certainty thresholds for early exit, evaluated at the end)
+    halt_thresholds: tuple = (0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.98, 0.99)
+
     # Logging / outputs
+    save_checkpoints: bool = True       # best.pt (by validation) and last.pt in the run folder
     out_root: str = "./runs"
     run_name: str = ""                  # optional human tag
 
@@ -83,7 +97,7 @@ class TrainConfig:
     # Plotting options
     keep_topk_cv: int = 6               # for cv_figure
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @property
@@ -96,11 +110,13 @@ class TrainConfig:
         """
         d = self.to_dict()
         # remove fields that should not affect identity
-        d.pop("run_name", None)
+        for key in ("run_name", "num_workers", "compile", "save_checkpoints", "track_every", "log_every",
+                    "out_root", "data_dir", "device"):
+            d.pop(key, None)
         s = json.dumps(d, sort_keys=True)
         return hashlib.sha1(s.encode("utf-8")).hexdigest()[:10]
 
 
-def as_pretty_json(d: Dict[str, Any]) -> str:
+def as_pretty_json(d: dict[str, Any]) -> str:
     return json.dumps(d, indent=2, sort_keys=True)
 

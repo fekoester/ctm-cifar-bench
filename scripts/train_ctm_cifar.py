@@ -1,155 +1,91 @@
 #!/usr/bin/env python3
+"""
+Train CTM (or the CNN baseline) on CIFAR.
+
+Every TrainConfig field is a flag with the same name. Boolean flags take 0/1 and may be given bare
+(`--amp` == `--amp 1`). Sweeps:
+
+  --sweep4                      loss {minmax, monotone} x z_residual {0, 1}
+  --lambda_sweep 0,0.05,0.1     monotone runs with each lambda_mono (combined with --sweep4: the
+                                monotone half of the sweep is repeated for each lambda)
+  --seeds 0,1,2                 repeat everything over seeds
+"""
 from __future__ import annotations
 
 import argparse
+import dataclasses
+import itertools
+from typing import get_type_hints
+
 from ctm_cifar.config import TrainConfig
 from ctm_cifar.train import train_one
+
+CHOICES = {
+    "device": ["cpu", "cuda"],
+    "dataset": ["cifar10", "cifar100", "fake"],
+    "model_type": ["ctm", "cnn"],
+    "loss_type": ["minmax", "monotone", "allticks", "stochastic"],
+    "eval_rule": ["final", "certainty", "best_tick", "mean_logits"],
+}
+
+
+def _bool01(v: str) -> bool:
+    if str(v).lower() in ("1", "true", "yes"):
+        return True
+    if str(v).lower() in ("0", "false", "no"):
+        return False
+    raise argparse.ArgumentTypeError(f"expected 0/1, got {v!r}")
+
+
+def _floats(v: str) -> list[float]:
+    return [float(t) for t in v.split(",") if t.strip()]
 
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser("CTM CIFAR training")
-
-    # system
-    ap.add_argument("--device", type=str, default="cuda", choices=["cpu", "cuda"])
-    ap.add_argument("--amp", type=int, default=1, choices=[0, 1])
-    ap.add_argument("--seed", type=int, default=0)
-
-    # data
-    ap.add_argument("--dataset", type=str, default="cifar10", choices=["cifar10", "cifar100"])
-    ap.add_argument("--data_dir", type=str, default="./data_cifar")
-    ap.add_argument("--num_workers", type=int, default=4)
-
-    # training
-    ap.add_argument("--epochs", type=int, default=50)
-    ap.add_argument("--batch_size", type=int, default=256)
-    ap.add_argument("--grad_accum", type=int, default=1)
-    ap.add_argument("--lr", type=float, default=1e-4)
-    ap.add_argument("--weight_decay", type=float, default=1e-4)
-    ap.add_argument("--warmup_steps", type=int, default=200)
-    ap.add_argument("--steps_per_epoch", type=int, default=0)
-
-    # model size
-    ap.add_argument("--D", type=int, default=256)
-    ap.add_argument("--M", type=int, default=32)
-    ap.add_argument("--H", type=int, default=256)
-    ap.add_argument("--T_train", type=int, default=10)
-    ap.add_argument("--T_eval_mult", type=int, default=2)
-
-    ap.add_argument("--feat_dim", type=int, default=64)
-    ap.add_argument("--attn_dim", type=int, default=64)
-    ap.add_argument("--attn_heads", type=int, default=16)
-
-    ap.add_argument("--Dout_pairs", type=int, default=512)
-    ap.add_argument("--Dact_pairs", type=int, default=512)
-    ap.add_argument("--self_pairs_out", type=int, default=0)
-    ap.add_argument("--self_pairs_act", type=int, default=0)
-    ap.add_argument("--pair_seed", type=int, default=123)
-
-    ap.add_argument("--syn_depth", type=int, default=10)
-    ap.add_argument("--syn_bottleneck", type=int, default=16)
-    ap.add_argument("--dropout", type=float, default=0.0)
-
-    # knobs
-    ap.add_argument("--z_residual", type=int, default=1, choices=[0, 1])
-    ap.add_argument("--eta", type=float, default=0.1)
-    ap.add_argument("--layernorm_z", type=int, default=1, choices=[0, 1])
-    ap.add_argument("--layernorm_o", type=int, default=1, choices=[0, 1])
-    ap.add_argument("--beta_per_sample", type=int, default=0, choices=[0, 1])
-
-    # feature mode
-    ap.add_argument("--state_feat", type=int, default=0, choices=[0, 1])
-    ap.add_argument("--hyper_rank", type=int, default=16)
-    ap.add_argument("--hyper_hidden", type=int, default=128)
-
-    # logits refinement
-    ap.add_argument("--additive_logits", type=int, default=0, choices=[0, 1])
-
-    # objectives
-    ap.add_argument("--loss_type", type=str, default="minmax",
-                    choices=["minmax", "monotone", "allticks", "stochastic"])
-    ap.add_argument("--eval_rule", type=str, default="certainty", choices=["final", "certainty"])
-    ap.add_argument("--lambda_mono", type=float, default=0.05)
-    ap.add_argument("--mono_margin", type=float, default=0.0)
-    ap.add_argument("--stoch_truncate_compute", type=int, default=0, choices=[0, 1])
-
-    # logging
-    ap.add_argument("--out_root", type=str, default="./runs")
-    ap.add_argument("--run_name", type=str, default="")
-    ap.add_argument("--track_every", type=int, default=50)
-    ap.add_argument("--log_every", type=int, default=50)
-
+    hints = get_type_hints(TrainConfig)
+    for f in dataclasses.fields(TrainConfig):
+        default = f.default
+        typ = hints[f.name]
+        if typ is bool:
+            ap.add_argument(f"--{f.name}", type=_bool01, nargs="?", const=True, default=default)
+        elif f.name == "halt_thresholds":
+            ap.add_argument("--halt_thresholds", type=lambda v: tuple(_floats(v)), default=default)
+        elif typ in (int, float, str):
+            ap.add_argument(f"--{f.name}", type=typ, default=default, choices=CHOICES.get(f.name))
+    ap.add_argument("--sweep4", action="store_true", help="minmax/monotone x z_residual 0/1")
+    ap.add_argument("--lambda_sweep", type=_floats, default=None, help="comma-separated lambda_mono values")
+    ap.add_argument("--seeds", type=lambda v: [int(t) for t in v.split(",")], default=None)
     return ap
 
 
+def expand_runs(args: argparse.Namespace) -> list[TrainConfig]:
+    names = {f.name for f in dataclasses.fields(TrainConfig)}
+    base = {k: v for k, v in vars(args).items() if k in names}
+    variants: list[dict] = []
+    lambdas = args.lambda_sweep or [base["lambda_mono"]]
+    if args.sweep4:
+        for zres in (False, True):
+            variants.append({"loss_type": "minmax", "z_residual": zres})
+            variants += [{"loss_type": "monotone", "z_residual": zres, "lambda_mono": lam} for lam in lambdas]
+    elif args.lambda_sweep:
+        variants = [{"loss_type": "monotone", "lambda_mono": lam} for lam in lambdas]
+    else:
+        variants = [{}]
+    seeds = args.seeds or [base["seed"]]
+    return [TrainConfig(**{**base, **v, "seed": s}) for v, s in itertools.product(variants, seeds)]
+
+
 def main():
-    ap = build_parser()
-    args = ap.parse_args()
-
-    cfg = TrainConfig(
-        device=args.device,
-        amp=bool(args.amp),
-        seed=args.seed,
-
-        dataset=args.dataset,
-        data_dir=args.data_dir,
-        num_workers=args.num_workers,
-
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        grad_accum=args.grad_accum,
-        lr=args.lr,
-        weight_decay=args.weight_decay,
-        warmup_steps=args.warmup_steps,
-        steps_per_epoch=args.steps_per_epoch,
-
-        D=args.D,
-        M=args.M,
-        H=args.H,
-        T_train=args.T_train,
-        T_eval_mult=args.T_eval_mult,
-
-        feat_dim=args.feat_dim,
-        attn_dim=args.attn_dim,
-        attn_heads=args.attn_heads,
-
-        Dout_pairs=args.Dout_pairs,
-        Dact_pairs=args.Dact_pairs,
-        self_pairs_out=args.self_pairs_out,
-        self_pairs_act=args.self_pairs_act,
-        pair_seed=args.pair_seed,
-
-        syn_depth=args.syn_depth,
-        syn_bottleneck=args.syn_bottleneck,
-        dropout=args.dropout,
-
-        z_residual=bool(args.z_residual),
-        eta=args.eta,
-        layernorm_z=bool(args.layernorm_z),
-        layernorm_o=bool(args.layernorm_o),
-        beta_per_sample=bool(args.beta_per_sample),
-
-        state_feat=bool(args.state_feat),
-        hyper_rank=args.hyper_rank,
-        hyper_hidden=args.hyper_hidden,
-
-        additive_logits=bool(args.additive_logits),
-
-        loss_type=args.loss_type,
-        eval_rule=args.eval_rule,
-        lambda_mono=args.lambda_mono,
-        mono_margin=args.mono_margin,
-        stoch_truncate_compute=bool(args.stoch_truncate_compute),
-
-        out_root=args.out_root,
-        run_name=args.run_name,
-        track_every=args.track_every,
-        log_every=args.log_every,
-    )
-
-    run_dir = train_one(cfg)
-    print("\nSaved run to:", run_dir)
+    args = build_parser().parse_args()
+    runs = expand_runs(args)
+    for i, cfg in enumerate(runs, 1):
+        if len(runs) > 1:
+            print(f"\n=== run {i}/{len(runs)}: loss={cfg.loss_type} zres={int(cfg.z_residual)} "
+                  f"lambda={cfg.lambda_mono} seed={cfg.seed} ===")
+        run_dir = train_one(cfg)
+        print("Saved run to:", run_dir)
 
 
 if __name__ == "__main__":
     main()
-

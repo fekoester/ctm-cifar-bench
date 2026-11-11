@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 from .logging_utils import safe_makedirs
-
 
 BASE_COLOR = {
     "monotone":   "C0",
@@ -27,7 +26,7 @@ def _norm_loss_type(s: str) -> str:
     return s
 
 
-def run_style_key(cfg: Dict[str, Any]) -> Tuple:
+def run_style_key(cfg: dict[str, Any]) -> tuple:
     dataset = str(cfg.get("dataset", "cifar?")).lower()
     loss_type = _norm_loss_type(cfg.get("loss_type", "??"))
     zres = int(bool(cfg.get("z_residual", False)))
@@ -37,7 +36,7 @@ def run_style_key(cfg: Dict[str, Any]) -> Tuple:
 
 
 
-def _lambda_groups_for_monotone(runs: List[Dict[str, Any]]) -> Dict[Tuple, int]:
+def _lambda_groups_for_monotone(runs: list[dict[str, Any]]) -> dict[tuple, int]:
     lambdas_by_group = {}
     for r in runs:
         cfg = r["cfg"]
@@ -57,7 +56,7 @@ def _lambda_groups_for_monotone(runs: List[Dict[str, Any]]) -> Dict[Tuple, int]:
     return idx_map
 
 
-def _style_for_run(cfg: Dict[str, Any], lam_idx_map: Dict[Tuple, int]) -> Dict[str, Any]:
+def _style_for_run(cfg: dict[str, Any], lam_idx_map: dict[tuple, int]) -> dict[str, Any]:
     dataset = str(cfg.get("dataset", "cifar?")).lower()
     loss_type = _norm_loss_type(cfg.get("loss_type", "??"))
     zres = int(bool(cfg.get("z_residual", False)))
@@ -80,7 +79,7 @@ def _style_for_run(cfg: Dict[str, Any], lam_idx_map: Dict[Tuple, int]) -> Dict[s
 
 
 
-def extract_history_arrays(history: List[Dict[str, Any]]):
+def extract_history_arrays(history: list[dict[str, Any]]):
     epochs = np.array([h.get("epoch", i + 1) for i, h in enumerate(history)], dtype=np.int64)
     val_acc = np.array([h.get("val_acc_2T", np.nan) for h in history], dtype=np.float32)
     val_ce = np.array([h.get("val_ce_2T", np.nan) for h in history], dtype=np.float32)
@@ -88,7 +87,7 @@ def extract_history_arrays(history: List[Dict[str, Any]]):
     return epochs, train_loss, val_acc, val_ce
 
 
-def extract_best_tick_acc_over_epochs(history: List[Dict[str, Any]], mode: str = "max_acc"):
+def extract_best_tick_acc_over_epochs(history: list[dict[str, Any]], mode: str = "max_acc"):
     epochs = np.array([h.get("epoch", i + 1) for i, h in enumerate(history)], dtype=np.int64)
     best = []
     for h in history:
@@ -109,7 +108,7 @@ def extract_best_tick_acc_over_epochs(history: List[Dict[str, Any]], mode: str =
     return epochs, np.asarray(best, dtype=np.float32)
 
 
-def plot_summary(runs: List[Dict[str, Any]], out_dir: str, keep_topk_cv: int = 6):
+def plot_summary(runs: list[dict[str, Any]], out_dir: str, keep_topk_cv: int = 6):
     safe_makedirs(out_dir)
     lam_idx_map = _lambda_groups_for_monotone(runs)
 
